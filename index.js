@@ -1,50 +1,86 @@
-const express = require('express');
+const express = require("express");
 
-const { graphqlHTTP } = require("express-graphql")
+const { graphqlHTTP } = require("express-graphql");
 
-const cors = require('cors');
+const cors = require("cors");
 
-const schema = require('./schema');
+const schema = require("./schema");
 
-const userController = require('./controller/users.controller')
+const userController = require("./controller/users.controller");
 
 const app = express();
 
 app.use(cors());
+app.use(express.json());
 
 const root = {
-    getAllUsers: async () => {
-        const users = await userController.getUsers()
+  loginUser: async ({ email, password }) => {
+    const res = await userController.loginUser({ email, password });
 
-        return users;
-    },
+    return res;
+  },
 
-    getUser: async ({ id }) => {
-        const user = await userController.getUser({ id })
+  getAllUsers: async () => {
+    const users = await userController.getUsers();
 
-        return user;
-    },
+    return users;
+  },
 
-    createUser: async ({ input }) => {
-        const user = await userController.createUser(input)
+  getUser: async ({ id }) => {
+    const user = await userController.getUser({ id });
 
-        return user;
-    },
+    return user;
+  },
 
-    addUserProfileInfo: async ({ input }) => {
-        const userProfileInfo = await userController.addUserProfileInfo(input)
+  createUser: async ({ username, email, password }) => {
+    const user = await userController.createUser({ username, email, password });
+    return user;
+  },
 
-        return userProfileInfo;
-    }
-}
+  addUserProfileInfo: async ({ input }) => {
+    const userProfileInfo = await userController.addUserProfileInfo(input);
 
+    return userProfileInfo;
+  },
 
-app.use('/graphql', graphqlHTTP({
-    graphiql: true,
-    schema,
-    rootValue: root
-}));
+  deleteUser: async ({ email }) => {
+    const response = await userController.deleteUser(email);
+
+    return response;
+  },
+
+  logoutUser: async () => {
+    const response = await userController.logoutUser();
+
+    return response;
+  },
+};
+
+app.use(
+  "/graphql",
+  graphqlHTTP(async (req) => {
+    let user = null;
+
+    // 🔹 Check if the request contains a token (except for login/register)
+    // if (
+    //   req.body.query.includes("getCurrentUser") ||
+    //   req.body.query.includes("someOtherProtectedMutation")
+    // ) {
+    //   user = authMiddleware(req); // Authenticate the user
+    // }
+
+    return {
+      schema,
+      graphiql: true,
+      rootValue: root,
+      context: { user },
+    };
+  })
+);
 
 app.listen(5000, () => {
-    console.log('Server is running on port 5000', 'http://localhost:5000/graphql');
+  console.log(
+    "Server is running on port 5000",
+    "http://localhost:5000/graphql"
+  );
 });

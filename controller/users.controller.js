@@ -1,16 +1,72 @@
 const db = require("../db");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const SECRET_KEY = "my_secret_key_a_b_c"; // Change this to an environment variable
 
 class UsersController {
-  async createUser(input) {
-    const { username, email, password } = input;
+  async loginUser({ email, password }) {
+    const query = `SELECT id, username, email, password FROM users WHERE email = $1`;
+    const userResult = await db.query(query, [email]);
 
+    if (userResult.rows.length === 0) {
+      return {
+        ok: false,
+        token: null,
+        error: {
+          field: "email",
+          message: "Invalid email",
+        },
+      };
+    }
+
+    const user = userResult.rows[0];
+
+    // Compare hashed password
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return {
+        ok: false,
+        token: null,
+        error: {
+          field: "password",
+          message: "Invalid password",
+        },
+      };
+    }
+
+    // Generate JWT token
+    const accessToken = jwt.sign(
+      { id: user.id, email: user.email, username: user.username },
+      SECRET_KEY,
+      { expiresIn: "7d" }
+    );
+
+    return {
+      ok: true,
+      accessToken,
+      user: { id: user.id, username: user.username, email: user.email },
+    };
+  }
+
+  async createUser({ username, email, password }) {
     const users = await this.getUsers();
 
     const isUserExist = users.find((client) => client.email === email);
 
     if (isUserExist) {
-      throw new Error("User with this email already exist");
+      return {
+        ok: false,
+        user: null,
+        error: {
+          field: "common",
+          message: "User with this email already exist",
+        },
+      };
     }
+
+    // Hash password before saving
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const insertUserQuery = `INSERT INTO users (
             username,
@@ -19,13 +75,26 @@ class UsersController {
         ) VALUES ($1, $2, $3) RETURNING id, username, email, password`;
 
     try {
-      const newUser = await db.query(insertUserQuery, [
+      const newUserResult = await db.query(insertUserQuery, [
         username,
         email,
-        password,
+        hashedPassword,
       ]);
 
-      return newUser.rows[0];
+      const newUser = newUserResult.rows[0];
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: newUser.id, email: newUser.email, username: newUser.username },
+        SECRET_KEY,
+        { expiresIn: "7d" } // Token expires in 7 days
+      );
+
+      return {
+        ok: true,
+        accessToken: token,
+        user: newUser,
+      };
     } catch (error) {
       throw new Error(error);
     }
@@ -111,11 +180,40 @@ class UsersController {
   }
 
   async deleteUser(email) {
-    const query = "DELETE FROM users WHERE email = $1";
+    try {
+      const userQuery = `SELECT id FROM users WHERE email = $1`;
+      const userResult = await db.query(userQuery, [email]);
+      const userId = userResult.rows[0].id;
 
-    await db.query(query, [email]);
+      if (userId) {
+        await db.query(`DELETE FROM profiles WHERE user_id = $1`, [userId]);
+      }
 
-    return true;
+      const query = "DELETE FROM users WHERE email = $1";
+
+      const result = await db.query(query, [email]);
+
+      if (result.rowCount === 0) {
+        return {
+          ok: false,
+          error: {
+            field: "common",
+            message: "User not found",
+          },
+        };
+      }
+
+      return { ok: true, error: null };
+    } catch (error) {
+      console.log("__error", error);
+      throw new Error(error);
+    }
+  }
+
+  async logoutUser(_, { res }) {
+    res.clearCookie("auth_token");
+
+    return { message: "Logged out successfully" };
   }
 }
 
